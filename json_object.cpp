@@ -15,82 +15,124 @@ using tElementPos = long;
 
 using tElementString = std::string;
 using tElementNumber = long;
-using tElementBool = bool;
-using tElement = std::variant<tElementNumber, tElementString, tElementBool>;
+using tElementBool = double;
 
-//Helper to visit variant and return string from element
-struct StringifyVistor
-{
-    std::string operator()(const tElementNumber x)
-    {
-        std::stringstream ss;
-        ss << x;
-        return ss.str();
-    }
-    std::string operator()(const tElementBool x)
-    {
-        return std::string((x ? "true" : "false"));
-    }
-    std::string operator()(const tElementString& x)
-    {
-        std::stringstream ss;
-        ss << '"' << x << '"';
-        return ss.str();
-    }
-    
-};
+//HOMEWORK  contains another sequence of tElements?
+// struct with indirection (e.g pointer)
+// recursion in the visitor more complex
+
 
 /**
  * Json Object
 */
 class JsonObject
 {
+    struct tElement;
+    using tElements = std::map<tName, tElement>;
 
+    /*
+    * tElement node storage
+    */
+    struct tElement
+    {
+        using tElementData = std::variant<tElementNumber, tElementString, tElementBool, tElements>;
+        tElementData node;
+
+        template<typename T>
+        tElement(const T& x)
+        {
+            node = x;
+        }        
+
+        tElement(std::initializer_list<std::pair<tName, tElement>> il)
+        {
+            tElements t;
+            for ( const auto& p : il )
+                t.insert(p); 
+            node = t; 
+            //TODO create tElements in map
+        }
+    };
+
+    //Helper to visit variant and return string from element
+    struct StringifyVistor
+    {
+        std::string operator()(const tElementNumber x) const
+        {
+            return std::to_string(x);
+        }
+        std::string operator()(const tElementBool x) const
+        {
+            return std::string((x ? "true" : "false"));
+        }
+        std::string operator()(const tElementString& x) const
+        {
+            std::stringstream ss;
+            ss << '"' << x << '"';
+            return ss.str();
+        }
+        std::string operator()(const tElements& x) const
+        {
+            std::stringstream ss;
+            ss << "{ ";
+            for( const auto& [k,v] : x )
+                ss  << k << ": " << std::visit(JsonObject::vistor, v.node) << ", ";
+            ss << "}";
+            return ss.str();
+        }
+    };
 public:
+    static constexpr auto vistor = StringifyVistor{};
 
     JsonObject() {}
 
-    JsonObject(std::initializer_list<std::pair<tName, tElement>>&& il)
+    JsonObject(std::initializer_list<std::pair<tName, tElement>> il) //best practice  to pass IL by value
     {
-        //Talk about the move semantics here..  does this work? did i need && at all points?
-        for ( auto&& p : il )
-        {
-            elements.insert(p);  //don't need std::move right?
-        }
+        for ( const auto& p : il )
+            elements.insert(p);  
     }
+
     template<typename T>
-    void add(const tName& name, const T& value)
+    void add(const tName& name, T&& value) //&& forwarding reference because T is template type
     {
-        //std::cout << "add typeid=" << typeid(T).name() << std::endl;
-        // not working.. compile eror with string type
-        //tElement el;
-        //std::get<T>(el) = value;
-        elements.insert({name, tElement{value}});
+        elements.insert({name, tElement{std::forward<T>(value)}});
     }
 
-    //Get elemnt by position
-    std::string operator[](const tName& name) const
+    //Get element for edit print
+    tElement& operator[](const tName& name)
     {
-        return std::visit(StringifyVistor{}, elements.at(name));
+        return elements.at(name);
     }
 
-    //ostream support
+    const tElement& operator[](const tName& name) const
+    {
+        return elements.at(name);
+    }
+
+    //ostream support friends
     friend std::ostream& operator<<(std::ostream& o, const JsonObject& j);
+    friend std::ostream& operator<<(std::ostream& o, const tElement& j);
 
 private:
-    std::map<tName, tElement> elements;
+    tElements elements;
 };
 
 //Friend of JsonObject
 std::ostream& operator<<(std::ostream& o, const JsonObject& j)
 {
-    auto vistor = StringifyVistor{};
-    o << "jsonObject: {\n";
-    for( auto [k,v] : j.elements )
+    o << "jsonObject: {";
+    for( const auto& [k,v] : j.elements )
     {
-        std::cout << '\t' << k << ": " << std::visit(vistor, v) << "," << std::endl;
+        o  << k << ": " << std::visit(JsonObject::vistor, v.node) << ", ";
     }
     o << "}\n";
+    return o;
+}
+
+//Friend of JsonObject
+std::ostream& operator<<(std::ostream& o, const JsonObject::tElement& e)
+{
+    o << std::visit(JsonObject::vistor, e.node);
     return o;
 }
 
@@ -99,38 +141,49 @@ std::ostream& operator<<(std::ostream& o, const JsonObject& j)
 */
 int main()
 {
+    //Test A
+    std::cout << "\n*** Test A - add, alter, print" << std::endl;
     {
-        std::cout << "\nTest A:" << std::endl;
+        
         JsonObject a;
         a.add("myelement0", 123L);
         a.add("myelement1", 456L);
         a.add("myelement2", std::string{"myvalue1"});
         a.add("myelement3", false);
 
-        std::cout <<  a["myelement0"] << std::endl;
-        std::cout <<  a["myelement1"] << std::endl;
-        std::cout <<  a["myelement2"] << std::endl;
-        std::cout <<  a["myelement3"] << std::endl;
+        std::cout << "Lookup with []: " << a["myelement0"] << "," << a["myelement1"] << ","
+            << a["myelement2"] <<  "," << a["myelement3"] << std::endl;
+
+        std::cout << "Json object to string: " << a << std::endl;
+
+        std::cout << "Alter elements:" << std::endl;
+        a["myelement3"] = 10L;
+        a["myelement0"] = "convert";
         std::cout <<  a << std::endl;
+
+        auto s = std::string{"myvalue1"}; 
+        a.add("myelement4", s); //test L-value passing to move 
     }
+    //Test B
+    std::cout << "\n*** Test B - initialiser list ctor" << std::endl;
     {
-        std::cout << "\nTest B:" << std::endl;
         JsonObject b = {
-            //{"happy", "yes"},
-            {"mylong", 1234L},
-            {"mybool", false},
-            {"mystring", "test"},
-            {"mystring2", "test2"},
+            {"mylong", 1234L}, {"mybool", false}, {"mystring", "test"}, {"mystring2", "test2"} 
         };
-        std::cout <<  "Test B:" << b << std::endl;
+        std::cout <<  "Json object to string: " << b << std::endl;
     }
+    //Test C
+    std::cout << "\n*** Test C - deeper structures" << std::endl;
+    {
+        JsonObject c = {
+            {"mylong", 1234L}, 
+            { "subnode1", { { "sub1", 1L }, { "sub2", "blah" }, { "sub3", false } } },
+            {"mybool", false},
+        };
+        //TODO can i add structured nodes?
+        //c.add({ "subnode1", { { "subelement1", 1L }, { "subelement2", false } });
+        //TODO get sub elements
+        //a["subnode/subelement1"] ??
+        std::cout <<  "Json object to string: " << c << std::endl;
+    }   
 }
-
-//
-// BONUS HOMEWORK: implement this function below
-// - let's limit it to one-level JSON, no recursion or arrays 
-
-//std::string deserialize_from_json(const JsonObject& obj);
-//JsonObject serialize_to_json(const std::string& s);
-//
-// JsonObject[0]
