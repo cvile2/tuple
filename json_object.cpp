@@ -9,6 +9,7 @@
 #include <vector>
 #include <variant>
 #include <sstream>
+#include <cassert>
 
 using tName = std::string;
 using tElementPos = long;
@@ -21,7 +22,6 @@ using tElementBool = double;
 // struct with indirection (e.g pointer)
 // recursion in the visitor more complex
 
-
 /**
  * Json Object
 */
@@ -33,46 +33,48 @@ class JsonObject
     /*
     * tElement node storage
     */
-    struct tElement
-    {
+    struct tElement {
         using tElementData = std::variant<tElementNumber, tElementString, tElementBool, tElements>;
-        tElementData node;
 
         template<typename T>
-        tElement(const T& x)
-        {
+        tElement(const T& x) {
             node = x;
         }        
 
-        tElement(std::initializer_list<std::pair<tName, tElement>> il)
-        {
+        tElement(std::initializer_list<std::pair<tName, tElement>> il) {
             tElements t;
             for ( const auto& p : il )
                 t.insert(p); 
             node = t; 
-            //TODO create tElements in map
+        }   
+
+        tElement& operator[](const tName& name) {
+            if (std::holds_alternative<tElements>(node)) {
+                return std::get<tElements>(node).at(name);
+            }
+            throw std::invalid_argument(name); //empty/null or error?
         }
+
+        /*bool operator==(const tElement& rhs) {
+            return node == rhs;
+        }*/
+        tElementData node;
     };
 
     //Helper to visit variant and return string from element
-    struct StringifyVistor
-    {
-        std::string operator()(const tElementNumber x) const
-        {
+    struct StringifyVistor {
+        std::string operator()(const tElementNumber x) const {
             return std::to_string(x);
         }
-        std::string operator()(const tElementBool x) const
-        {
+        std::string operator()(const tElementBool x) const {
             return std::string((x ? "true" : "false"));
         }
-        std::string operator()(const tElementString& x) const
-        {
+        std::string operator()(const tElementString& x) const {
             std::stringstream ss;
             ss << '"' << x << '"';
             return ss.str();
         }
-        std::string operator()(const tElements& x) const
-        {
+        std::string operator()(const tElements& x) const {
             std::stringstream ss;
             ss << "{ ";
             for( const auto& [k,v] : x )
@@ -86,26 +88,22 @@ public:
 
     JsonObject() {}
 
-    JsonObject(std::initializer_list<std::pair<tName, tElement>> il) //best practice  to pass IL by value
-    {
+    JsonObject(std::initializer_list<std::pair<tName, tElement>> il)  { //best practice  to pass IL by value
         for ( const auto& p : il )
             elements.insert(p);  
     }
 
     template<typename T>
-    void add(const tName& name, T&& value) //&& forwarding reference because T is template type
-    {
+    void add(const tName& name, T&& value) { //&& forwarding reference because T is template type
         elements.insert({name, tElement{std::forward<T>(value)}});
     }
 
     //Get element for edit print
-    tElement& operator[](const tName& name)
-    {
+    tElement& operator[](const tName& name) {
         return elements.at(name);
     }
 
-    const tElement& operator[](const tName& name) const
-    {
+    const tElement& operator[](const tName& name) const {
         return elements.at(name);
     }
 
@@ -118,8 +116,7 @@ private:
 };
 
 //Friend of JsonObject
-std::ostream& operator<<(std::ostream& o, const JsonObject& j)
-{
+std::ostream& operator<<(std::ostream& o, const JsonObject& j) {
     o << "jsonObject: {";
     for( const auto& [k,v] : j.elements )
     {
@@ -130,8 +127,7 @@ std::ostream& operator<<(std::ostream& o, const JsonObject& j)
 }
 
 //Friend of JsonObject
-std::ostream& operator<<(std::ostream& o, const JsonObject::tElement& e)
-{
+std::ostream& operator<<(std::ostream& o, const JsonObject::tElement& e) {
     o << std::visit(JsonObject::vistor, e.node);
     return o;
 }
@@ -139,8 +135,8 @@ std::ostream& operator<<(std::ostream& o, const JsonObject::tElement& e)
 /**
  * main
 */
-int main()
-{
+int main() {
+
     //Test A
     std::cout << "\n*** Test A - add, alter, print" << std::endl;
     {
@@ -164,6 +160,7 @@ int main()
         auto s = std::string{"myvalue1"}; 
         a.add("myelement4", s); //test L-value passing to move 
     }
+
     //Test B
     std::cout << "\n*** Test B - initialiser list ctor" << std::endl;
     {
@@ -172,18 +169,30 @@ int main()
         };
         std::cout <<  "Json object to string: " << b << std::endl;
     }
+
     //Test C
     std::cout << "\n*** Test C - deeper structures" << std::endl;
     {
+        //construct with sub-elements
         JsonObject c = {
             {"mylong", 1234L}, 
             { "subnode1", { { "sub1", 1L }, { "sub2", "blah" }, { "sub3", false } } },
             {"mybool", false},
         };
+
+        //access sub-elements
+        std::cout << "Get subelement using []: " << c["subnode1"]["sub1"] << std::endl;
+        std::cout << "Get subelement using []: " << c["subnode1"]["sub2"] << std::endl;
+        
+        //assert(c["subnode1"]["sub2"] == "blah"); can't compare yet
+
+        //update sub-elements
+        c["subnode1"]["sub3"] = true;
+        std::cout << "Get updated subelement using []: " << c["subnode1"]["sub3"] << std::endl; //BUG returning 1 not true
+
         //TODO can i add structured nodes?
         //c.add({ "subnode1", { { "subelement1", 1L }, { "subelement2", false } });
-        //TODO get sub elements
-        //a["subnode/subelement1"] ??
+
         std::cout <<  "Json object to string: " << c << std::endl;
     }   
 }
