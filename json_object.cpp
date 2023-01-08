@@ -1,6 +1,5 @@
 /*
-* HOMEWORK (21Nov22) Create a JsonObject class
-*
+* JsonObject
 **/
 #include <string>
 #include <iostream>
@@ -16,37 +15,31 @@ using tElementPos = long;
 
 using tElementString = std::string;
 using tElementNumber = long;
-using tElementBool = double;
-
-//HOMEWORK  contains another sequence of tElements?
-// struct with indirection (e.g pointer)
-// recursion in the visitor more complex
+using tElementBool = bool;
 
 /**
- * Json Object
+ * Json Object Class
 */
-class JsonObject
-{
+class JsonObject {
+
     struct tElement;
     using tElements = std::map<tName, tElement>;
 
     /*
     * tElement node storage
     */
-    struct tElement {
+    struct tElement { //FF collapse JsonObject and tElement
         using tElementData = std::variant<tElementNumber, tElementString, tElementBool, tElements>;
 
-        template<typename T>
-        tElement(const T& x) {
-            node = x;
-        }        
-
-        tElement(std::initializer_list<std::pair<tName, tElement>> il) {
-            tElements t;
+        //Construct from { x : y,  z : { a: b} } format
+        tElement(std::initializer_list<std::pair<tName, tElement>> il) : node{ std::in_place_type<tElements> }  {
+            tElements& t = std::get<tElements>(node);       
             for ( const auto& p : il )
                 t.insert(p); 
-            node = t; 
         }   
+
+        template<typename T>
+        tElement(const T& x) : node(x) {}  //forward this? not reference 
 
         tElement& operator[](const tName& name) {
             if (std::holds_alternative<tElements>(node)) {
@@ -55,13 +48,12 @@ class JsonObject
             throw std::invalid_argument(name); //empty/null or error?
         }
 
-        /*bool operator==(const tElement& rhs) {
-            return node == rhs;
-        }*/
         tElementData node;
     };
 
-    //Helper to visit variant and return string from element
+    /**
+     * Helper to visit variant and return string from element
+     */
     struct StringifyVistor {
         std::string operator()(const tElementNumber x) const {
             return std::to_string(x);
@@ -77,25 +69,36 @@ class JsonObject
         std::string operator()(const tElements& x) const {
             std::stringstream ss;
             ss << "{ ";
-            for( const auto& [k,v] : x )
-                ss  << k << ": " << std::visit(JsonObject::vistor, v.node) << ", ";
-            ss << "}";
+            for( bool first{true}; const auto& [k,v] : x ) { //c++20 init stateuemnt
+                ss  << (first ? first=false, " " : ", ") << k << ": " << std::visit(*this, v.node); 
+            }
+            ss << " }";
             return ss.str();
         }
     };
 public:
-    static constexpr auto vistor = StringifyVistor{};
-
     JsonObject() {}
 
-    JsonObject(std::initializer_list<std::pair<tName, tElement>> il)  { //best practice  to pass IL by value
+    JsonObject(std::initializer_list<std::pair<tName, tElement>> il) { //Note best practice  to pass IL by value
         for ( const auto& p : il )
             elements.insert(p);  
     }
 
+    void add(std::initializer_list<std::pair<tName, tElement>> il) { 
+        for ( const auto& p : il )
+            elements.insert(p);  
+    }
+
+    void add(const tName& name,std::initializer_list<std::pair<tName, tElement>> il) { 
+        tElements e;
+        for ( const auto& p : il )
+            e.insert(p);  
+        elements.emplace(name, std::move(e));
+    }
+
     template<typename T>
-    void add(const tName& name, T&& value) { //&& forwarding reference because T is template type
-        elements.insert({name, tElement{std::forward<T>(value)}});
+    void add(const tName& name, T&& value) { //Note && is forwarding reference because T is template type
+        elements.emplace(name, tElement{std::forward<T>(value)}); //avoiding copy / move - emplace directly into right memory location
     }
 
     //Get element for edit print
@@ -118,17 +121,16 @@ private:
 //Friend of JsonObject
 std::ostream& operator<<(std::ostream& o, const JsonObject& j) {
     o << "jsonObject: {";
-    for( const auto& [k,v] : j.elements )
-    {
-        o  << k << ": " << std::visit(JsonObject::vistor, v.node) << ", ";
+    for( bool first{true}; const auto& [k,v] : j.elements ) {
+        o  << (first ? first=false, " " : ", ") << k << ": " << std::visit(JsonObject::StringifyVistor{}, v.node);
     }
-    o << "}\n";
+    o << " }";
     return o;
 }
 
 //Friend of JsonObject
 std::ostream& operator<<(std::ostream& o, const JsonObject::tElement& e) {
-    o << std::visit(JsonObject::vistor, e.node);
+    o << std::visit(JsonObject::StringifyVistor{}, e.node);
     return o;
 }
 
@@ -140,7 +142,7 @@ int main() {
     //Test A
     std::cout << "\n*** Test A - add, alter, print" << std::endl;
     {
-        
+        //Create and add values of various types
         JsonObject a;
         a.add("myelement0", 123L);
         a.add("myelement1", 456L);
@@ -188,11 +190,20 @@ int main() {
 
         //update sub-elements
         c["subnode1"]["sub3"] = true;
-        std::cout << "Get updated subelement using []: " << c["subnode1"]["sub3"] << std::endl; //BUG returning 1 not true
+        //auto x = c["subnode1"]["sub3"];
+        //assert(std::get<bool>(x.node)=="true"); //BUG returning 1 not true
 
-        //TODO can i add structured nodes?
-        //c.add({ "subnode1", { { "subelement1", 1L }, { "subelement2", false } });
+        //add node using full IL
+        c.add({{"sn1", { { "se1A", 1L }, { "se1B", false } }}});
+        //add node using name and IL
+        c.add("sn2", { { "se2A", "blah" }, { "se2B", false } });
 
         std::cout <<  "Json object to string: " << c << std::endl;
+
+        //Next thing:  JSON array [][][]  (vector)
+        //
+
+        //Next: Serialise and Deserliase multi-nested levels - "Recursive descent parser" good approach
+        //
     }   
 }
